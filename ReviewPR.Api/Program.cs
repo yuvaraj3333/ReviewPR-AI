@@ -1,5 +1,8 @@
 
 using System.Text.RegularExpressions;
+using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
 using ReviewPR.Api;
 using ReviewPR.Api.Providers;
 using ReviewPR.Api.Services;
@@ -63,6 +66,49 @@ builder.Services.AddScoped<ModelDiscoveryService>();
 
 builder.Services.AddScoped<CustomerAiSettingsService>();
 
+
+// --------------------------------------------------
+// ReviewPR BYOK authentication
+// Azure DevOps extension application token validation
+// --------------------------------------------------
+
+string extensionSecret =
+    builder.Configuration["ExtensionSecret"]
+    ?? throw new InvalidOperationException(
+        "ExtensionSecret is not configured.");
+
+if (Encoding.UTF8.GetByteCount(extensionSecret) < 32)
+{
+    throw new InvalidOperationException(
+        "ExtensionSecret is too short for HS256 validation.");
+}
+
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.MapInboundClaims = false;
+
+        options.TokenValidationParameters =
+            new TokenValidationParameters
+            {
+                IssuerSigningKey = new SymmetricSecurityKey(
+                    Encoding.UTF8.GetBytes(extensionSecret)),
+
+                ValidateIssuerSigningKey = true,
+                ValidateIssuer = false,
+                ValidateAudience = false,
+                RequireSignedTokens = true,
+                RequireExpirationTime = true,
+                ValidateLifetime = true,
+                ValidAlgorithms = new[] {
+                    SecurityAlgorithms.HmacSha256
+                },
+                ClockSkew = TimeSpan.FromMinutes(1)
+            };
+    });
+
+builder.Services.AddAuthorization();
 var app = builder.Build();
 
 // --------------------------------------------------
@@ -381,5 +427,19 @@ if (app.Environment.IsDevelopment())
 
 }
 
+
+// Enable authentication and authorization.
+app.UseAuthentication();
+app.UseAuthorization();
+
+// Verify that Azure DevOps extension authentication works.
+// This endpoint does not grant access to customer credentials.
+app.MapGet("/api/ai/auth-check", () =>
+    Results.Ok(new
+    {
+        authenticated = true,
+        service = "ReviewPR BYOK"
+    }))
+    .RequireAuthorization();
 app.Run();
 

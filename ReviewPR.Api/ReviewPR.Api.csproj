@@ -5,4 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>reviewpr-ai-byok-development</UserSecretsId>
   </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.*" />
+  </ItemGroup>
 </Project>
