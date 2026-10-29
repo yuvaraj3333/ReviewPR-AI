@@ -89,6 +89,136 @@ builder.Services
     {
         options.MapInboundClaims = false;
 
+// ReviewPRJwtFailureDiagnostics
+// Temporary authentication diagnostics. Do not log token values.
+options.Events = new JwtBearerEvents
+{
+    OnMessageReceived = context =>
+{
+    // ReviewPRJwtHeaderDiagnostics — temporary test only
+    var authorization = context.Request.Headers.Authorization.ToString();
+
+    if (authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+    {
+        try
+        {
+            string jwt = authorization.Substring(7).Trim();
+            string headerPart = jwt.Split('.')[0];
+
+            string base64 = headerPart
+                .Replace('-', '+')
+                .Replace('_', '/');
+
+            base64 = base64.PadRight(
+                (base64.Length + 3) / 4 * 4, '=');
+
+            byte[] bytes = Convert.FromBase64String(base64);
+
+            using var document =
+                System.Text.Json.JsonDocument.Parse(bytes);
+
+            var header = document.RootElement;
+
+            string algorithm = header.TryGetProperty("alg", out var alg)
+                ? alg.GetString() ?? "missing"
+                : "missing";
+
+            bool hasKid = header.TryGetProperty("kid", out _);
+
+            var logger = context.HttpContext.RequestServices
+                .GetRequiredService<ILoggerFactory>()
+                .CreateLogger("ReviewPR.AuthDiagnostics");
+
+            logger.LogWarning(
+                "BYOK JWT header: Algorithm={Algorithm}, HasKeyId={HasKeyId}",
+                algorithm, hasKid);
+
+                // Temporary diagnostic: compare HMAC signature.
+// Do not log tokens, signatures, or keys.
+if (algorithm == "HS256")
+{
+    string[] parts = jwt.Split('.');
+
+    if (parts.Length == 3)
+    {
+        byte[] messageBytes = System.Text.Encoding.ASCII.GetBytes(
+            parts[0] + "." + parts[1]);
+
+        byte[] expectedSignature =
+            System.Security.Cryptography.HMACSHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(extensionSecret),
+                messageBytes);
+
+        string signaturePart = parts[2]
+            .Replace('-', '+')
+            .Replace('_', '/');
+
+        signaturePart = signaturePart.PadRight(
+            (signaturePart.Length + 3) / 4 * 4, '=');
+
+        byte[] actualSignature =
+            Convert.FromBase64String(signaturePart);
+
+        bool signatureMatches =
+            System.Security.Cryptography.CryptographicOperations
+                .FixedTimeEquals(
+                    expectedSignature,
+                    actualSignature);
+
+        logger.LogWarning(
+            "ReviewPR test signature comparison: Match={Match}",
+            signatureMatches);
+    }
+}
+        }
+        catch
+        {
+            // Do not log token contents or malformed header data.
+        }
+    }
+
+    return Task.CompletedTask;
+},
+
+OnAuthenticationFailed = context =>
+    {
+        string category = context.Exception switch
+        {
+            SecurityTokenSignatureKeyNotFoundException =>
+                "SIGNING_KEY_NOT_FOUND",
+
+            SecurityTokenInvalidSignatureException =>
+                "INVALID_SIGNATURE",
+
+            SecurityTokenExpiredException =>
+                "TOKEN_EXPIRED",
+
+            SecurityTokenInvalidAlgorithmException =>
+                "INVALID_ALGORITHM",
+
+            SecurityTokenInvalidIssuerException =>
+                "INVALID_ISSUER",
+
+            SecurityTokenInvalidAudienceException =>
+                "INVALID_AUDIENCE",
+
+            _ => "OTHER_VALIDATION_FAILURE"
+        };
+
+        var logger = context.HttpContext.RequestServices
+            .GetRequiredService<ILoggerFactory>()
+            .CreateLogger("ReviewPR.AuthDiagnostics");
+
+        logger.LogWarning(
+            "BYOK JWT authentication failed. Category={Category}; ExceptionType={ExceptionType}",
+            category,
+            context.Exception.GetType().Name
+        );
+
+        return Task.CompletedTask;
+    }
+};
+
         options.TokenValidationParameters =
             new TokenValidationParameters
             {
@@ -109,6 +239,17 @@ builder.Services
     });
 
 builder.Services.AddAuthorization();
+
+// ReviewPR BYOK authentication test CORS
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("ReviewPRByokTestCors", policy =>
+    {
+        policy.WithOrigins("https://reviewpr-ai.gallerycdn.vsassets.io")
+              .WithMethods("GET")
+              .WithHeaders("Authorization");
+    });
+});
 var app = builder.Build();
 
 // --------------------------------------------------
@@ -429,6 +570,7 @@ if (app.Environment.IsDevelopment())
 
 
 // Enable authentication and authorization.
+app.UseCors("ReviewPRByokTestCors");
 app.UseAuthentication();
 app.UseAuthorization();
 

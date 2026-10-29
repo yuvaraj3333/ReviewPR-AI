@@ -1,0 +1,55 @@
+{
+  "manifestVersion": 1,
+  "id": "reviewpr-ai-byok-auth-test",
+  "version": "0.0.3",
+  "name": "ReviewPR AI BYOK Auth Test",
+  "publisher": "reviewpr-ai",
+  "description": "Private read-only pilot for Azure Repos pull request review via protected Azure Pipelines runs.",
+  "public": false,
+  "categories": [
+    "Azure Repos"
+  ],
+  "targets": [
+    {
+      "id": "Microsoft.VisualStudio.Services"
+    }
+  ],
+  "icons": {
+    "default": "images/icon.png"
+  },
+  "content": {
+    "details": {
+      "path": "overview.md"
+    }
+  },
+  "files": [
+    {
+      "path": "dist",
+      "addressable": true
+    },
+    {
+      "path": "images",
+      "addressable": true
+    },
+    {
+      "path": "overview.md"
+    }
+  ],
+  "contributions": [
+    {
+      "id": "reviewpr-ai-settings-hub",
+      "type": "ms.vss-web.hub",
+      "targets": [
+        "ms.vss-code-web.code-hub-group"
+      ],
+      "properties": {
+        "name": "ReviewPR AI",
+        "uri": "dist/index.html"
+      }
+    }
+  ],
+  "scopes": [
+    "vso.code",
+    "vso.build_execute"
+  ]
+}

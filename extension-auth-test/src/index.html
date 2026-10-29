@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ReviewPR AI</title>
+<style>
+:root{color-scheme:dark;font-family:Segoe UI,system-ui,sans-serif;background:#0d111b;color:#edf2ff;--panel:#171f30;--border:#34405a;--muted:#aab9d1;--accent:#739cff}
+*{box-sizing:border-box}body{margin:0;background:#0d111b;color:#edf2ff;min-height:100vh}main{max-width:1080px;margin:auto;padding:28px 22px 55px}
+header{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:24px}h1{font-size:28px;margin:0 0 6px}h2{font-size:19px;margin:0 0 8px}p{line-height:1.5}.muted{color:var(--muted)}.eyebrow{color:#b5caff;font-size:12px;text-transform:uppercase;letter-spacing:.12em;margin-bottom:7px}.brand{display:flex;gap:14px;align-items:center}.brand-icon{background:#233c79;border:1px solid #5472c5;padding:15px;border-radius:14px;font-weight:700}
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:15px;padding:23px;margin-bottom:18px;box-shadow:0 7px 18px #0002}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.tabs{display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap}.tab{background:#19253c;color:#cbd9f4;border:1px solid var(--border);margin:0}.tab[aria-selected="true"]{background:#335dc3;color:#fff;border-color:#7a9cff}
+label{display:block;font-weight:600;margin:17px 0 7px}select,input{width:100%;background:#10192b;border:1px solid #51617d;border-radius:8px;padding:12px;color:#fff;font:inherit;min-width:0}select:focus,input:focus,button:focus-visible{outline:2px solid #8fb5ff;outline-offset:2px}button{border:1px solid #4368c9;border-radius:9px;padding:11px 16px;background:#3264dc;color:white;cursor:pointer;font:inherit;font-weight:600}button.secondary{background:#222f49;border-color:#53698c;color:#ebf0ff}button:disabled{opacity:.5;cursor:not-allowed}.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:18px}.status{border:1px solid #485977;background:#1f2c43;border-radius:10px;padding:12px 15px;white-space:pre-wrap;overflow-wrap:anywhere;margin-top:15px}.status.error{border-color:#ab6371;background:#442533}.status.success{border-color:#347e72;background:#173d37}.badge{font-size:12px;border:1px solid #526a9a;background:#203054;border-radius:999px;padding:7px 11px;color:#cbdcff}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#0e1727;border:1px solid #31415d;border-radius:9px;padding:14px;max-height:310px;overflow:auto;color:#dce6ff}.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:14px}th,td{border-bottom:1px solid #35435b;text-align:left;padding:10px;vertical-align:top;overflow-wrap:anywhere}th{color:#c8d8ff}.notice{border-left:3px solid #799dff;background:#1b2c4e;padding:12px 15px;border-radius:6px;color:#e4eeff}.small{font-size:13px}section[hidden]{display:none}a{color:#a6c5ff}@media(max-width:720px){.grid{grid-template-columns:1fr}main{padding:20px 12px}.panel{padding:17px}header{align-items:flex-start}}
+</style>
+</head>
+<body>
+<main>
+<header><div class="brand"><div class="brand-icon" aria-hidden="true">PR</div><div><div class="eyebrow">Code review workspace</div><h1>ReviewPR AI</h1><div class="muted">Review Azure Repos pull requests with confidence.</div></div></div><span class="badge">Private preview · read-only</span></header>
+<nav class="tabs" aria-label="ReviewPR navigation"><button type="button" class="tab" data-tab="reviewPanel" aria-selected="true">Review</button><button type="button" class="tab" data-tab="settingsPanel" aria-selected="false">AI Settings</button><button type="button" class="tab" data-tab="aboutPanel" aria-selected="false">About &amp; Security</button></nav>
+<section class="tab-panel" id="reviewPanel">
+<div class="panel"><h2>Azure DevOps connection</h2><p id="context" class="muted" aria-live="polite">Connecting to Azure DevOps…</p><div id="connectionStatus" class="status" role="status" aria-live="polite">Initializing…</div></div>
+<div class="panel"><h2>Select a pull request</h2><p class="muted small">Choose a repository, then an active pull request. Inspecting changes is read-only. The pilot review queues a customer-owned mock pipeline; no PR comments are sent.</p>
+<div class="grid"><div><label for="repository">Repository</label><select id="repository" disabled><option value="">Loading repositories…</option></select></div><div><label for="pullRequest">Active pull request</label><select id="pullRequest" disabled><option value="">Select a repository first</option></select></div></div>
+<div class="actions"><button id="refresh" class="secondary" type="button" disabled>Refresh repositories</button><button id="inspect" type="button" disabled>Inspect PR changes</button></div><div class="status" id="reviewStatus" role="status" aria-live="polite">Select a repository to begin.</div></div>
+<div class="panel"><h2>Review with AI — private pilot</h2><p class="muted small">Restricted to ReviewPR-AI-Test with approved Mock or Gemini modes. Queue permission is required. No PAT or AI key is entered in this web UI.</p><label for="reviewMode">AI review provider</label>
+<select id="reviewMode">
+  <option value="mock" selected>Mock (testing)</option>
+  <option value="gemini">Google Gemini — gemini-3.1-flash-lite</option>
+</select>
+<p class="muted small">The selected provider runs through the verified read-only pipeline. No API keys are entered here.</p>
+<label for="pipelineId">Manual-review pipeline ID</label><input type="number" id="pipelineId" min="1" step="1" placeholder="Numeric ID from Azure DevOps Pipelines URL"><div class="actions"><button id="runReview" type="button" disabled>Review with AI</button><a id="reviewRunLink" hidden target="_blank" rel="noopener noreferrer">Open run</a></div></div>
+<div class="panel"><h2>Pull request details</h2><div id="reviewResults" class="muted" aria-live="polite">No pull request inspected yet.</div></div>
+</section>
+<section id="settingsPanel" class="tab-panel" hidden>
+<div class="panel"><h2>AI provider configuration</h2><p class="notice">Bring your own model and API key. This preview does not request, save or transmit API keys.</p>
+<label for="provider">AI provider</label><select id="provider"><option value="mock">Mock (testing only)</option><option value="gemini">Google Gemini</option><option value="openai">OpenAI</option><option value="compatible">OpenAI-compatible API</option></select>
+<label for="model">Model ID</label><input id="model" maxlength="100" autocomplete="off" placeholder="e.g. an available model ID"><p id="providerStatus" class="muted small">This build supports read-only PR inspection. AI execution is not connected yet.</p>
+<label for="scope">Review mode</label><select id="scope"><option value="personal">Manual review (planned)</option><option value="repository">Automatic repository review (requires protected runner)</option></select>
+<div class="actions"><button id="preview" type="button">Preview settings</button><button id="discover" type="button" disabled>Discover models (coming later)</button><button id="testConnection" type="button" disabled>Test AI connection (coming later)</button><button id="saveSettings" type="button" disabled>Save securely (coming later)</button></div><pre id="output" aria-live="polite">Select a provider and enter a model ID to preview.</pre></div></section>
+<section id="aboutPanel" class="tab-panel" hidden><div class="panel"><h2>Security &amp; release readiness</h2><p class="muted">ReviewPR AI v0.2.7 is a private development build. Repository and PR inspection is read-only. The pilot queues a mock-only review pipeline; it does not store customer API keys or publish comments.</p><div id="securityStatus" class="status">Publishing is disabled. No source files, approvals, or merges are modified.</div></div></section>
+</main><script src="app.js"></script>
+</body>
+</html>

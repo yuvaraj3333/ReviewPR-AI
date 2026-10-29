@@ -1,0 +1,16 @@
+{
+  "name": "reviewpr-ai-extension-starter",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "build": "node build.mjs",
+    "package": "npm run build && tfx extension create --manifest-globs vss-extension.json"
+  },
+  "dependencies": {
+    "azure-devops-extension-sdk": "^5.0.0",
+    "fflate": "^0.8.3"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

@@ -9,3 +9,11 @@ appsettings.Development.json
 secrets.json
 .env
 .env.*
+/publish/
+**/node_modules/
+**/dist/
+*.vsix
+**/secrets.json
+**/appsettings.Development.json
+**/.env
+**/.env.*
