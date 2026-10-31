@@ -13,6 +13,9 @@ let pullRequests = [];
 let initialized = false;
 let reviewing = false;
 const PILOT_REPO = 'ReviewPR-AI-Test';
+// PRIVATE AUTH TEST ONLY. Use a stable trusted HTTPS backend before public release.
+// Configure this one URL when your temporary Cloudflare Quick Tunnel changes.
+const BACKEND_ORIGIN = 'https://passing-founded-whose-dog.trycloudflare.com';
 const APPROVED_REVIEW_MODES = Object.freeze({
   mock: Object.freeze({
     provider: 'mock',
@@ -311,7 +314,7 @@ async function reviewWithPipeline() {
   } catch (err) {
     message(readableError(err), true);
   } finally {
-    reviewing = false; button.textContent = 'Review with AI'; reviewMode.disabled = false; reviewControls(true);
+    reviewing = false; button.textContent = 'Review with AI'; $('reviewMode').disabled = false; reviewControls(true);
   }
 }
 function initializeUI() {
@@ -336,6 +339,125 @@ function initializeUI() {
     $('output').textContent = JSON.stringify({provider, model: model || '(not configured)', mode: scope, credentialConfigured: false, aiReviewEnabled: false, publishingEnabled: false}, null, 2);
   });
 }
+// Private test-only status UI; never log, render, persist, or forward token values
+// to hosts other than this fixed development backend and Azure DevOps.
+function setupBackendTestControls() {
+  if ($('reviewprBackendTests')) return; // prevent duplicate controls
+
+  const root = document.createElement('section');
+  root.id = 'reviewprBackendTests';
+  root.setAttribute('aria-label', 'ReviewPR backend security tests');
+  root.style.cssText = 'margin:16px 12px;padding:14px;border:1px solid #77808a;border-radius:8px;';
+
+  const heading = document.createElement('h3');
+  heading.textContent = 'Backend authentication tests (private development)';
+  root.appendChild(heading);
+
+  const explanatory = document.createElement('p');
+  explanatory.textContent = 'These tests verify extension authentication and Azure DevOps user identity; they do not enable BYOK or repository permissions.';
+  root.appendChild(explanatory);
+
+  function addTest(label, pendingMessage, run) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = label;
+    button.style.cssText = 'margin:8px 10px 8px 0;padding:9px 12px;cursor:pointer;';
+
+    const status = document.createElement('div');
+    status.setAttribute('role', 'status');
+    status.setAttribute('aria-live', 'polite');
+    status.style.cssText = 'margin:4px 0 12px;overflow-wrap:anywhere;';
+    status.textContent = 'Not tested';
+
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      status.textContent = pendingMessage;
+      try {
+        status.textContent = await run();
+      } catch (_err) {
+        // Do not print token values or raw exceptions that could contain them.
+        status.textContent = 'Request failed. Check HTTPS tunnel, CORS, and backend configuration.';
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    root.append(button, status);
+  }
+
+  addTest('Test BYOK Authentication', 'Checking extension authentication…', async () => {
+    const appToken = await SDK.getAppToken();
+    const response = await fetch(`${BACKEND_ORIGIN}/api/ai/auth-check`, {
+      method: 'GET',
+      credentials: 'omit',
+      redirect: 'error',
+      cache: 'no-store',
+      headers: { Authorization: `Bearer ${appToken}`, Accept: 'application/json' }
+    });
+    return `Authentication HTTP status: ${response.status}${response.ok ? ' — PASS' : ' — FAIL'}`;
+  });
+
+  addTest('Test User Identity', 'Verifying Azure DevOps user identity…', async () => {
+    // Fetch a current delegated token; do not use the app token for Azure DevOps REST APIs.
+    const [appToken, devopsToken] = await Promise.all([
+      SDK.getAppToken(),
+      SDK.getAccessToken()
+    ]);
+    const response = await fetch(`${BACKEND_ORIGIN}/api/ai/identity-check`, {
+      method: 'GET',
+      credentials: 'omit',
+      redirect: 'error',
+      cache: 'no-store',
+      headers: {
+        Authorization: `Bearer ${appToken}`,
+        'X-ReviewPR-DevOps-Token': devopsToken,
+        Accept: 'application/json'
+      }
+    });
+    if (!response.ok) return `Identity HTTP status: ${response.status} — FAIL`;
+
+    const result = await response.json();
+    // Require the server to have resolved a real user within the current organization.
+    if (result?.authenticated !== true ||
+        result?.identityVerifiedBy !== 'Azure DevOps' ||
+        typeof result?.userId !== 'string' || !result.userId.trim() ||
+        result?.organization !== organization) {
+      return 'Identity HTTP 200, but trusted user/organization verification was incomplete.';
+    }
+    return `Identity verified: ${organization} — PASS (repository permissions still pending)`;
+  });
+
+  // 3F-C3: Read-only authenticated personal settings smoke test.
+  addTest('Test Personal BYOK Settings', 'Loading your personal settings…', async () => {
+    const [appToken, devopsToken] = await Promise.all([
+      SDK.getAppToken(),
+      SDK.getAccessToken()
+    ]);
+    const response = await fetch(`${BACKEND_ORIGIN}/api/ai/settings/me`, {
+      method: 'GET',
+      credentials: 'omit',
+      redirect: 'error',
+      cache: 'no-store',
+      headers: {
+        Authorization: `Bearer ${appToken}`,
+        'X-ReviewPR-DevOps-Token': devopsToken,
+        Accept: 'application/json'
+      }
+    });
+    if (!response.ok) return `Personal settings HTTP ${response.status} — FAIL`;
+    const result = await response.json();
+    if (!result || typeof result.provider !== 'string' ||
+        typeof result.model !== 'string' ||
+        typeof result.credentialConfigured !== 'boolean' ||
+        Object.keys(result).some(key => /^(apiKey|protectedApiKey|secret|credentialValue)$/i.test(key))) {
+      return 'Personal settings HTTP 200, but response schema was invalid.';
+    }
+    return `Personal settings HTTP 200 — PASS (provider: ${result.provider}; key configured: ${result.credentialConfigured})`;
+  });
+
+  document.body.appendChild(root);
+}
+
 async function start() {
   if (initialized) return;
   initialized = true;
@@ -345,50 +467,6 @@ async function start() {
     SDK.init({ loaded: false, applyTheme: false });
     await SDK.ready();
 
-// ReviewPR BYOK authentication integration test.
-// Test extension only. Never log or display the token.
-const reviewprByokAuthTest = document.createElement("button");
-reviewprByokAuthTest.type = "button";
-reviewprByokAuthTest.textContent = "Test BYOK Authentication";
-reviewprByokAuthTest.style.margin = "12px";
-reviewprByokAuthTest.style.padding = "8px 12px";
-
-const reviewprByokAuthResult = document.createElement("div");
-reviewprByokAuthResult.setAttribute("role", "status");
-reviewprByokAuthResult.style.margin = "12px";
-
-document.body.append(
-    reviewprByokAuthTest,
-    reviewprByokAuthResult
-);
-
-reviewprByokAuthTest.addEventListener("click", async () => {
-    reviewprByokAuthTest.disabled = true;
-    reviewprByokAuthResult.textContent = "Testing authentication...";
-
-    try {
-        const token = await SDK.getAppToken();
-
-        const response = await fetch(
-            "https://bibliography-primarily-low-vat.trycloudflare.com/api/ai/auth-check",
-            {
-                method: "GET",
-                headers: {
-                    Authorization: `Bearer ${token}`
-                },
-                cache: "no-store"
-            }
-        );
-
-        reviewprByokAuthResult.textContent =
-            `Authentication HTTP status: ${response.status}`;
-    } catch {
-        reviewprByokAuthResult.textContent =
-            "Authentication request failed. Check CORS, network, and backend configuration.";
-    } finally {
-        reviewprByokAuthTest.disabled = false;
-    }
-});
     // Acknowledge host loading before requesting repository data.
     await SDK.notifyLoadSucceeded();
     const host = SDK.getHost();
@@ -400,6 +478,7 @@ reviewprByokAuthTest.addEventListener("click", async () => {
     message('Azure DevOps connected. Loading repositories…', false, 'connectionStatus');
     token = await SDK.getAccessToken();
     message('Connected using signed-in Azure DevOps permissions.', false, 'connectionStatus');
+    setupBackendTestControls();
     await loadRepositories();
   } catch (err) {
     const detail = readableError(err);

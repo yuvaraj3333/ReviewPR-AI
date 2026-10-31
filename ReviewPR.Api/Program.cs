@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection;
 
 using System.Text.RegularExpressions;
 using System.Text;
@@ -89,135 +90,9 @@ builder.Services
     {
         options.MapInboundClaims = false;
 
-// ReviewPRJwtFailureDiagnostics
-// Temporary authentication diagnostics. Do not log token values.
-options.Events = new JwtBearerEvents
-{
-    OnMessageReceived = context =>
-{
-    // ReviewPRJwtHeaderDiagnostics — temporary test only
-    var authorization = context.Request.Headers.Authorization.ToString();
-
-    if (authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-    {
-        try
-        {
-            string jwt = authorization.Substring(7).Trim();
-            string headerPart = jwt.Split('.')[0];
-
-            string base64 = headerPart
-                .Replace('-', '+')
-                .Replace('_', '/');
-
-            base64 = base64.PadRight(
-                (base64.Length + 3) / 4 * 4, '=');
-
-            byte[] bytes = Convert.FromBase64String(base64);
-
-            using var document =
-                System.Text.Json.JsonDocument.Parse(bytes);
-
-            var header = document.RootElement;
-
-            string algorithm = header.TryGetProperty("alg", out var alg)
-                ? alg.GetString() ?? "missing"
-                : "missing";
-
-            bool hasKid = header.TryGetProperty("kid", out _);
-
-            var logger = context.HttpContext.RequestServices
-                .GetRequiredService<ILoggerFactory>()
-                .CreateLogger("ReviewPR.AuthDiagnostics");
-
-            logger.LogWarning(
-                "BYOK JWT header: Algorithm={Algorithm}, HasKeyId={HasKeyId}",
-                algorithm, hasKid);
-
-                // Temporary diagnostic: compare HMAC signature.
-// Do not log tokens, signatures, or keys.
-if (algorithm == "HS256")
-{
-    string[] parts = jwt.Split('.');
-
-    if (parts.Length == 3)
-    {
-        byte[] messageBytes = System.Text.Encoding.ASCII.GetBytes(
-            parts[0] + "." + parts[1]);
-
-        byte[] expectedSignature =
-            System.Security.Cryptography.HMACSHA256.HashData(
-                System.Text.Encoding.UTF8.GetBytes(extensionSecret),
-                messageBytes);
-
-        string signaturePart = parts[2]
-            .Replace('-', '+')
-            .Replace('_', '/');
-
-        signaturePart = signaturePart.PadRight(
-            (signaturePart.Length + 3) / 4 * 4, '=');
-
-        byte[] actualSignature =
-            Convert.FromBase64String(signaturePart);
-
-        bool signatureMatches =
-            System.Security.Cryptography.CryptographicOperations
-                .FixedTimeEquals(
-                    expectedSignature,
-                    actualSignature);
-
-        logger.LogWarning(
-            "ReviewPR test signature comparison: Match={Match}",
-            signatureMatches);
-    }
-}
-        }
-        catch
-        {
-            // Do not log token contents or malformed header data.
-        }
-    }
-
-    return Task.CompletedTask;
-},
-
-OnAuthenticationFailed = context =>
-    {
-        string category = context.Exception switch
-        {
-            SecurityTokenSignatureKeyNotFoundException =>
-                "SIGNING_KEY_NOT_FOUND",
-
-            SecurityTokenInvalidSignatureException =>
-                "INVALID_SIGNATURE",
-
-            SecurityTokenExpiredException =>
-                "TOKEN_EXPIRED",
-
-            SecurityTokenInvalidAlgorithmException =>
-                "INVALID_ALGORITHM",
-
-            SecurityTokenInvalidIssuerException =>
-                "INVALID_ISSUER",
-
-            SecurityTokenInvalidAudienceException =>
-                "INVALID_AUDIENCE",
-
-            _ => "OTHER_VALIDATION_FAILURE"
-        };
-
-        var logger = context.HttpContext.RequestServices
-            .GetRequiredService<ILoggerFactory>()
-            .CreateLogger("ReviewPR.AuthDiagnostics");
-
-        logger.LogWarning(
-            "BYOK JWT authentication failed. Category={Category}; ExceptionType={ExceptionType}",
-            category,
-            context.Exception.GetType().Name
-        );
-
-        return Task.CompletedTask;
-    }
-};
+        // App-token JWT signature and lifetime validation are enforced below.
+        // Do not log bearer tokens, JWT payloads, or signing secrets.
+        // No event handlers are required for normal validation.
 
         options.TokenValidationParameters =
             new TokenValidationParameters
@@ -226,6 +101,10 @@ OnAuthenticationFailed = context =>
                     Encoding.UTF8.GetBytes(extensionSecret)),
 
                 ValidateIssuerSigningKey = true,
+                // Verified extension-app-token prototype only. These flags do not
+                // authorize an individual user, organization, or repository.
+                // Complete issuer/audience binding and an independent Azure DevOps
+                // user/repository authorization flow before enabling BYOK writes.
                 ValidateIssuer = false,
                 ValidateAudience = false,
                 RequireSignedTokens = true,
@@ -240,16 +119,40 @@ OnAuthenticationFailed = context =>
 
 builder.Services.AddAuthorization();
 
-// ReviewPR BYOK authentication test CORS
+// ReviewPR BYOK read-only authentication-test CORS
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("ReviewPRByokTestCors", policy =>
     {
         policy.WithOrigins("https://reviewpr-ai.gallerycdn.vsassets.io")
-              .WithMethods("GET")
-              .WithHeaders("Authorization");
+              .WithMethods("GET", "PUT", "DELETE")
+              .WithHeaders("Authorization", "X-ReviewPR-DevOps-Token", "Content-Type");
     });
 });
+
+builder.Services.AddHttpClient("AzureDevOpsIdentity", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(15);
+})
+.ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+{
+    AllowAutoRedirect = false,
+    UseCookies = false
+});
+
+// REVIEWPR_3FC3_PERSONAL_BYOK: Private Windows development pilot, not a production vault.
+if (!OperatingSystem.IsWindows())
+    throw new PlatformNotSupportedException("This pilot vault requires Windows DPAPI.");
+string localKeys = Path.Combine(
+    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+    "ReviewPR-AI", "BYOK-Pilot", "keys");
+Directory.CreateDirectory(localKeys);
+builder.Services.AddDataProtection()
+    .SetApplicationName("ReviewPR-BYOK-Pilot-v1")
+    .PersistKeysToFileSystem(new DirectoryInfo(localKeys))
+    .ProtectKeysWithDpapi();
+builder.Services.AddSingleton<PersonalByokSettingsStore>();
+builder.Services.AddScoped<ByokPilotIdentityResolver>();
 var app = builder.Build();
 
 // --------------------------------------------------
@@ -583,5 +486,215 @@ app.MapGet("/api/ai/auth-check", () =>
         service = "ReviewPR BYOK"
     }))
     .RequireAuthorization();
+
+// Milestone 3F-C1 boundary: this endpoint identifies the *authentication
+// mechanism*, not an individual Azure DevOps user. App tokens alone must not
+// grant permission to read/write customer credentials or repository settings.
+app.MapGet("/api/ai/me", () =>
+    Results.Ok(new
+    {
+        authenticated = true,
+        principalType = "azure-devops-extension-app",
+        userIdentityVerified = false,
+        repositoryAccessVerified = false,
+        credentialSettingsAccess = false,
+        message = "Extension token accepted; user and repository authorization not configured."
+    }))
+    .RequireAuthorization();
+
+// --------------------------------------------------
+// Milestone 3F-C2 — Azure DevOps delegated identity +
+// pilot repository READ authorization.
+//
+// This is intentionally read-only: it does not authorize
+// repository settings writes or access to customer API keys.
+// Both bearer tokens are never logged or returned.
+// --------------------------------------------------
+app.MapGet("/api/ai/identity-check", async (
+    HttpContext context,
+    IHttpClientFactory clients,
+    CancellationToken ct) =>
+{
+    // Fixed private pilot target. Multi-tenant repository authorization
+    // requires validated tenant/repository IDs and separate write checks.
+    const string organization = "reviewpr-ai-lab";
+    const string project = "ReviewPR-AI-Test";
+    const string repository = "ReviewPR-AI-Test";
+
+    context.Response.Headers["Cache-Control"] = "no-store";
+
+    string userToken = context.Request.Headers[
+        "X-ReviewPR-DevOps-Token"].ToString();
+
+    if (string.IsNullOrWhiteSpace(userToken) ||
+        userToken.Length > 8192 ||
+        userToken.Contains('\r') ||
+        userToken.Contains('\n'))
+    {
+        return Results.Unauthorized();
+    }
+
+    // The endpoint is also guarded by RequireAuthorization(), which
+    // validates the extension's signed, unexpired application token.
+    // The delegated token is independently verified by Azure DevOps.
+    var client = clients.CreateClient("AzureDevOpsIdentity");
+
+    try
+    {
+        using var identityRequest = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"https://dev.azure.com/{organization}/" +
+            "_apis/connectionData?api-version=7.1-preview.1");
+
+        identityRequest.Headers.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue(
+                "Bearer", userToken);
+
+        using var identityResponse = await client.SendAsync(
+            identityRequest,
+            HttpCompletionOption.ResponseHeadersRead,
+            ct);
+
+        if (!identityResponse.IsSuccessStatusCode)
+            return Results.StatusCode(403);
+
+        await using var identityStream =
+            await identityResponse.Content.ReadAsStreamAsync(ct);
+
+        using var identityJson = await System.Text.Json.JsonDocument.ParseAsync(
+            identityStream, cancellationToken: ct);
+
+        if (!identityJson.RootElement.TryGetProperty(
+                "authenticatedUser", out var user) ||
+            user.ValueKind != System.Text.Json.JsonValueKind.Object ||
+            !user.TryGetProperty("id", out var userIdElement) ||
+            userIdElement.ValueKind != System.Text.Json.JsonValueKind.String)
+        {
+            return Results.StatusCode(502);
+        }
+
+        string? userId = userIdElement.GetString();
+
+        if (string.IsNullOrWhiteSpace(userId))
+            return Results.StatusCode(403);
+
+        // A repository GET proves delegated-token read access to this
+        // pilot repository; it does NOT confer repository administration.
+        using var repositoryRequest = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"https://dev.azure.com/{organization}/{project}/" +
+            $"_apis/git/repositories/{repository}?api-version=7.1");
+
+        repositoryRequest.Headers.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue(
+                "Bearer", userToken);
+
+        using var repositoryResponse = await client.SendAsync(
+            repositoryRequest,
+            HttpCompletionOption.ResponseHeadersRead,
+            ct);
+
+        if (!repositoryResponse.IsSuccessStatusCode)
+            return Results.StatusCode(403);
+
+        await using var repositoryStream =
+            await repositoryResponse.Content.ReadAsStreamAsync(ct);
+
+        using var repositoryJson = await System.Text.Json.JsonDocument.ParseAsync(
+            repositoryStream, cancellationToken: ct);
+
+        var repo = repositoryJson.RootElement;
+        if (repo.ValueKind != System.Text.Json.JsonValueKind.Object ||
+            !repo.TryGetProperty("id", out var repositoryIdElement) ||
+            repositoryIdElement.ValueKind != System.Text.Json.JsonValueKind.String ||
+            !repo.TryGetProperty("name", out var repositoryNameElement) ||
+            repositoryNameElement.ValueKind != System.Text.Json.JsonValueKind.String ||
+            !string.Equals(repositoryNameElement.GetString(), repository,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return Results.StatusCode(403);
+        }
+
+        string? repositoryId = repositoryIdElement.GetString();
+        if (string.IsNullOrWhiteSpace(repositoryId))
+            return Results.StatusCode(403);
+
+        // Preserve the exact response contract consumed by the
+        // installed private test extension (identityVerifiedBy).
+        return Results.Ok(new
+        {
+            authenticated = true,
+            organization,
+            userId,
+            repository,
+            repositoryId,
+            identityVerifiedBy = "Azure DevOps",
+            identityVerified = true,
+            repositoryReadVerified = true,
+            repositorySettingsWriteAuthorized = false,
+            credentialSettingsEnabled = false
+        });
+    }
+    catch (HttpRequestException)
+    {
+        // Avoid leaking upstream request details or delegated tokens.
+        return Results.Problem(
+            title: "Azure DevOps identity service unavailable",
+            statusCode: 502);
+    }
+    catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+    {
+        return Results.Problem(
+            title: "Azure DevOps identity service timed out",
+            statusCode: 504);
+    }
+    catch (System.Text.Json.JsonException)
+    {
+        return Results.Problem(
+            title: "Unexpected Azure DevOps identity response",
+            statusCode: 502);
+    }
+})
+.RequireAuthorization();
+
+// REVIEWPR_3FC3_PERSONAL_BYOK: Personal settings only. No repository-shared writes.
+app.MapGet("/api/ai/settings/me", async (
+    HttpContext ctx, ByokPilotIdentityResolver identity,
+    PersonalByokSettingsStore store, CancellationToken ct) =>
+{
+    string? userId = await identity.ResolveUserIdAsync(ctx, ct);
+    if (userId is null) return Results.StatusCode(403);
+    return Results.Ok(await store.GetAsync(ByokPilotIdentityResolver.Organization, userId, ct));
+}).RequireAuthorization();
+
+app.MapPut("/api/ai/settings/me", async (
+    HttpContext ctx, SavePersonalByokSettingsRequest request,
+    ByokPilotIdentityResolver identity, PersonalByokSettingsStore store,
+    IConfiguration configuration, CancellationToken ct) =>
+{
+    // Opt-in is disabled by default, and must not be enabled with the leaked test signing secret.
+    if (!configuration.GetValue<bool>("BYOK:EnablePersonalSettingsWrites"))
+        return Results.StatusCode(403);
+    string? userId = await identity.ResolveUserIdAsync(ctx, ct);
+    if (userId is null) return Results.StatusCode(403);
+    try
+    {
+        return Results.Ok(await store.SaveAsync(
+            ByokPilotIdentityResolver.Organization, userId, request, ct));
+    }
+    catch (ArgumentException) { return Results.BadRequest(new { error = "Invalid BYOK settings." }); }
+}).RequireAuthorization();
+
+app.MapDelete("/api/ai/settings/me", async (
+    HttpContext ctx, ByokPilotIdentityResolver identity,
+    PersonalByokSettingsStore store, IConfiguration configuration, CancellationToken ct) =>
+{
+    if (!configuration.GetValue<bool>("BYOK:EnablePersonalSettingsWrites"))
+        return Results.StatusCode(403);
+    string? userId = await identity.ResolveUserIdAsync(ctx, ct);
+    if (userId is null) return Results.StatusCode(403);
+    await store.DeleteAsync(ByokPilotIdentityResolver.Organization, userId, ct);
+    return Results.NoContent();
+}).RequireAuthorization();
 app.Run();
 
