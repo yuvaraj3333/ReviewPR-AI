@@ -696,5 +696,16 @@ app.MapDelete("/api/ai/settings/me", async (
     await store.DeleteAsync(ByokPilotIdentityResolver.Organization, userId, ct);
     return Results.NoContent();
 }).RequireAuthorization();
+// 3F-D personal settings capability status: this does not expose credentials.
+app.MapGet("/api/ai/settings/capabilities", (
+    IConfiguration config) => Results.Ok(new
+    {
+        personalSettingsWriteEnabled =
+            config.GetValue<bool>("BYOK:EnablePersonalSettingsWrites"),
+        repositorySettingsWriteEnabled = false,
+        automaticReviewPublishingEnabled = false
+    }))
+    .RequireAuthorization();
+
 app.Run();
 

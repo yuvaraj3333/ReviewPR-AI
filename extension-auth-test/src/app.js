@@ -15,7 +15,7 @@ let reviewing = false;
 const PILOT_REPO = 'ReviewPR-AI-Test';
 // PRIVATE AUTH TEST ONLY. Use a stable trusted HTTPS backend before public release.
 // Configure this one URL when your temporary Cloudflare Quick Tunnel changes.
-const BACKEND_ORIGIN = 'https://passing-founded-whose-dog.trycloudflare.com';
+const BACKEND_ORIGIN = 'https://tutorial-movements-compensation-rather.trycloudflare.com';
 const APPROVED_REVIEW_MODES = Object.freeze({
   mock: Object.freeze({
     provider: 'mock',
@@ -458,6 +458,164 @@ function setupBackendTestControls() {
   document.body.appendChild(root);
 }
 
+// Milestone 3F-D: personal BYOK settings UI inside the existing private test extension.
+// Uses backend authorization. Never persists keys in browser storage or prints tokens.
+function setupPersonalByokSettingsUI() {
+  if (document.getElementById('reviewprPersonalByok')) return;
+
+  const panel = document.createElement('section');
+  panel.id = 'reviewprPersonalByok';
+  panel.style.cssText = 'margin:16px 12px;padding:14px;border:1px solid #77808a;border-radius:8px;';
+  panel.appendChild(textElement('h3', 'Personal BYOK Settings (private pilot)'));
+  panel.appendChild(textElement('p', 'Personal settings only. Repository-wide credentials and automatic publishing are not enabled. Do not use real keys until signing-secret rotation and security review are complete.'));
+
+  function field(name, input) {
+    const label = document.createElement('label');
+    label.textContent = name;
+    label.style.cssText = 'display:block;margin:10px 0 4px;';
+    panel.append(label, input);
+    return input;
+  }
+  function button(label) {
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.textContent = label;
+    el.style.cssText = 'margin:12px 10px 8px 0;padding:8px 12px;cursor:pointer;';
+    panel.appendChild(el);
+    return el;
+  }
+  const provider = document.createElement('select');
+  for (const [value, name] of [
+    ['mock', 'Mock (no API key)'],
+    ['openai', 'OpenAI'],
+    ['gemini', 'Google Gemini'],
+    ['compatible', 'OpenAI-compatible (review integration pending)']
+  ]) provider.add(new Option(name, value));
+  field('AI provider', provider);
+
+  const model = document.createElement('input');
+  model.type = 'text';
+  model.maxLength = 100;
+  model.value = 'mock-positive-test';
+  model.placeholder = 'Model identifier';
+  model.style.cssText = 'display:block;max-width:420px;width:100%;';
+  field('Model', model);
+
+  const secret = document.createElement('input');
+  secret.type = 'password';
+  secret.autocomplete = 'new-password';
+  secret.maxLength = 4096;
+  secret.placeholder = 'Leave empty to preserve a previously stored key';
+  secret.style.cssText = 'display:block;max-width:420px;width:100%;';
+  field('API key (never displayed again)', secret);
+
+  const refresh = button('Load My Settings');
+  const save = button('Save Personal Settings');
+  const remove = button('Delete My Settings');
+  const status = document.createElement('p');
+  status.setAttribute('role', 'status');
+  status.setAttribute('aria-live', 'polite');
+  panel.appendChild(status);
+
+  // The installed private extension already initializes the Azure DevOps SDK.
+  async function callPersonal(method, path, data) {
+    const [appToken, userToken] = await Promise.all([SDK.getAppToken(), SDK.getAccessToken()]);
+    const response = await fetch(`${BACKEND_ORIGIN}${path}`, {
+      method,
+      credentials: 'omit',
+      redirect: 'error',
+      cache: 'no-store',
+      headers: {
+        Authorization: `Bearer ${appToken}`,
+        'X-ReviewPR-DevOps-Token': userToken,
+        Accept: 'application/json',
+        ...(data === undefined ? {} : {'Content-Type': 'application/json'})
+      },
+      ...(data === undefined ? {} : {body: JSON.stringify(data)})
+    });
+    return {
+      status: response.status,
+      data: response.ok && response.status !== 204 ? await response.json() : null
+    };
+  }
+
+  let writesAllowed = false;
+  function lockWrites() {
+    save.disabled = !writesAllowed;
+    remove.disabled = !writesAllowed;
+  }
+  lockWrites();
+
+  async function load() {
+    status.textContent = 'Loading personal settings...';
+    refresh.disabled = true;
+    try {
+      const capability = await callPersonal('GET', '/api/ai/settings/capabilities');
+      writesAllowed = capability.status === 200 && capability.data?.personalSettingsWriteEnabled === true;
+      lockWrites();
+      const result = await callPersonal('GET', '/api/ai/settings/me');
+      if (result.status !== 200 || !result.data || typeof result.data.provider !== 'string' ||
+          typeof result.data.model !== 'string' || typeof result.data.credentialConfigured !== 'boolean') {
+        status.textContent = `Cannot load personal settings (HTTP ${result.status}).`;
+        return;
+      }
+      const data = result.data;
+      if ([...provider.options].some(o => o.value === data.provider)) provider.value = data.provider;
+      model.value = data.model;
+      secret.value = '';
+      status.textContent = `Settings loaded. Credential configured: ${data.credentialConfigured}. ` +
+        (writesAllowed ? 'Personal writes enabled for approved pilot.' : 'Save/Delete locked by backend security gate.');
+    } catch (_err) {
+      status.textContent = 'Settings request failed: check HTTPS, backend and CORS.';
+      writesAllowed = false;
+      lockWrites();
+    } finally { refresh.disabled = false; }
+  }
+
+  provider.addEventListener('change', () => {
+    if (provider.value === 'mock') model.value = 'mock-positive-test';
+  });
+  refresh.addEventListener('click', load);
+
+  save.addEventListener('click', async () => {
+    if (!writesAllowed) return;
+    save.disabled = true;
+    status.textContent = 'Saving...';
+    try {
+      // Credential only exists briefly in this request; never log or cache it.
+      const result = await callPersonal('PUT', '/api/ai/settings/me', {
+        provider: provider.value,
+        model: model.value.trim(),
+        apiKey: secret.value
+      });
+      secret.value = '';
+      status.textContent = result.status === 200
+        ? `Saved ${result.data?.provider || ''} settings; key configured: ${result.data?.credentialConfigured === true}.`
+        : `Save rejected (HTTP ${result.status}).`;
+    } catch (_err) {
+      secret.value = '';
+      status.textContent = 'Save request failed. No confirmation of persistence.';
+    } finally { lockWrites(); }
+  });
+
+  remove.addEventListener('click', async () => {
+    if (!writesAllowed || !window.confirm('Delete your personal BYOK settings?')) return;
+    remove.disabled = true;
+    status.textContent = 'Deleting...';
+    try {
+      const result = await callPersonal('DELETE', '/api/ai/settings/me');
+      secret.value = '';
+      status.textContent = result.status === 204 ? 'Personal BYOK settings deleted.' : `Delete rejected (HTTP ${result.status}).`;
+      if (result.status === 204) await load();
+    } catch (_err) { status.textContent = 'Delete request failed.'; }
+    finally { lockWrites(); }
+  });
+
+  const settingsTab = document.getElementById('output')?.closest('.tab-panel');
+  (settingsTab || document.body).appendChild(panel);
+  load().catch(() => { status.textContent = 'Settings initialization failed.'; });
+}
+
 async function start() {
   if (initialized) return;
   initialized = true;
@@ -479,6 +637,7 @@ async function start() {
     token = await SDK.getAccessToken();
     message('Connected using signed-in Azure DevOps permissions.', false, 'connectionStatus');
     setupBackendTestControls();
+    setupPersonalByokSettingsUI();
     await loadRepositories();
   } catch (err) {
     const detail = readableError(err);
