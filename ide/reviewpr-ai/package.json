@@ -2,7 +2,7 @@
   "name": "reviewpr-ai",
   "displayName": "ReviewPR AI",
   "description": "AI-powered Git code review for developers",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "engines": {
     "vscode": "^1.145.0"
   },
@@ -11,6 +11,7 @@
   ],
   "activationEvents": [
     "onCommand:reviewpr-ai.reviewGitChanges",
+    "onCommand:reviewpr-ai.configureProvider",
     "onStartupFinished"
   ],
   "main": "./dist/extension.js",
@@ -18,9 +19,24 @@
     "commands": [
       {
         "command": "reviewpr-ai.reviewGitChanges",
-        "title": "ReviewPR AI: Review with AI (Mock)"
+        "title": "ReviewPR AI: Review with AI"
+      },
+      {
+        "command": "reviewpr-ai.configureProvider",
+        "title": "ReviewPR AI: Configure Provider & Model"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "ReviewPR AI",
+      "properties": {
+        "reviewpr-ai.bridgeDllPath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the locally built ReviewPR.IdeBridge.dll (Release/net10.0). Required for OpenAI and Gemini; Mock needs no bridge.",
+          "scope": "application"
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run package",

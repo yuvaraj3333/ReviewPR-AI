@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <!-- Link the existing engine sources rather than copying or changing them. -->
+    <Compile Include="../ReviewPR.Api/Models.cs" Link="Shared/Models.cs" />
+    <Compile Include="../ReviewPR.Api/Providers/IReviewProvider.cs" Link="Providers/IReviewProvider.cs" />
+    <Compile Include="../ReviewPR.Api/Providers/ProviderHelpers.cs" Link="Providers/ProviderHelpers.cs" />
+    <Compile Include="../ReviewPR.Api/Providers/OpenAIProvider.cs" Link="Providers/OpenAIProvider.cs" />
+    <Compile Include="../ReviewPR.Api/Providers/GeminiProvider.cs" Link="Providers/GeminiProvider.cs" />
+  </ItemGroup>
+</Project>
