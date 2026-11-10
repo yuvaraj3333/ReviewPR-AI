@@ -2,7 +2,7 @@
   "name": "reviewpr-ai",
   "displayName": "ReviewPR AI",
   "description": "AI-powered Git code review for developers",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "engines": {
     "vscode": "^1.145.0"
   },
@@ -18,7 +18,7 @@
     "commands": [
       {
         "command": "reviewpr-ai.reviewGitChanges",
-        "title": "ReviewPR AI: Review Git Changes"
+        "title": "ReviewPR AI: Review with AI (Mock)"
       }
     ]
   },

@@ -1,3 +1,5 @@
+import * as path from 'node:path';
+import { analyzeMockDiff } from './mockReview';
 import * as vscode from 'vscode';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -16,6 +18,8 @@ async function runGit(args: string[], cwd: string): Promise<string> {
 
 export function activate(context: vscode.ExtensionContext) {
     const output = vscode.window.createOutputChannel('ReviewPR AI');
+    const diagnostics = vscode.languages.createDiagnosticCollection('ReviewPR AI (Mock)');
+    context.subscriptions.push(diagnostics);
     const commandId = 'reviewpr-ai.reviewGitChanges';
 
     const command = vscode.commands.registerCommand(commandId, async () => {
@@ -74,6 +78,27 @@ export function activate(context: vscode.ExtensionContext) {
                 root
             );
 
+                        const findings = analyzeMockDiff(diff);
+            diagnostics.clear();
+            for (const finding of findings) {
+                const absolute = path.resolve(root, finding.file);
+                if (!absolute.startsWith(root + path.sep)) {
+                    continue;
+                }
+                const uri = vscode.Uri.file(absolute);
+                const position = new vscode.Position(Math.max(0, finding.line - 1), 0);
+                const severity = finding.severity === 'warning'
+                    ? vscode.DiagnosticSeverity.Warning
+                    : vscode.DiagnosticSeverity.Information;
+                const diag = new vscode.Diagnostic(
+                    new vscode.Range(position, position),
+                    `${finding.description} Suggested fix: ${finding.suggestedFix}`,
+                    severity
+                );
+                diag.source = 'ReviewPR AI (Mock)';
+                const current = diagnostics.get(uri) ?? [];
+                diagnostics.set(uri, [...current, diag]);
+            }
             output.clear();
             output.appendLine('ReviewPR AI - Git Change Review');
             output.appendLine('================================');
@@ -107,9 +132,19 @@ export function activate(context: vscode.ExtensionContext) {
             }
 
             output.appendLine('');
-            output.appendLine(
-                'AI analysis is not connected yet.'
-            );
+                        output.appendLine('MOCK REVIEW RESULTS (offline; no AI service called)');
+            output.appendLine('--------------------------------------------');
+            if (findings.length === 0) {
+                output.appendLine('No mock findings on added diff lines.');
+            } else {
+                for (const f of findings) {
+                    output.appendLine(`[${f.severity.toUpperCase()}] ${f.file}:${f.line}`);
+                    output.appendLine(`Issue: ${f.description}`);
+                    output.appendLine(`Suggested fix: ${f.suggestedFix}`);
+                }
+            }
+            output.appendLine(`Mock findings: ${findings.length}. See Problems panel.`);
+            output.appendLine('Real AI/.NET engine integration is the next milestone.');
             output.appendLine(
                 'Untracked files are listed but not included in the diff.'
             );
