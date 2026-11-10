@@ -14,6 +14,9 @@ public sealed record PersonalByokSettingsResponse(
     bool CredentialConfigured,
     DateTimeOffset? UpdatedUtc);
 
+// Internal only. Never serialize this record in any HTTP result.
+internal sealed record PersonalByokCredential(string Provider, string Model, string ApiKey);
+
 public sealed class PersonalByokSettingsStore
 {
     private sealed record StoredDocument(
@@ -64,13 +67,24 @@ public sealed class PersonalByokSettingsStore
         return PublicRecord(record); // Never returns the API key or protected key.
     }
 
+    internal async Task<PersonalByokCredential?> GetCredentialAsync(
+        string organization, string userId, CancellationToken cancellationToken)
+    {
+        // Called only AFTER app-token authentication and delegated-user authorization.
+        StoredDocument? record = await ReadAsync(PathFor(organization, userId), cancellationToken);
+        if (record is null || record.Provider == "mock" ||
+            string.IsNullOrEmpty(record.ProtectedApiKey)) return null;
+        return new PersonalByokCredential(record.Provider, record.Model,
+            _protector.Unprotect(record.ProtectedApiKey));
+    }
+
     public async Task<PersonalByokSettingsResponse> SaveAsync(
         string organization, string userId, SavePersonalByokSettingsRequest request,
         CancellationToken cancellationToken)
     {
         string provider = (request.Provider ?? "").Trim().ToLowerInvariant();
         string model = (request.Model ?? "").Trim();
-        if (provider is not ("mock" or "openai" or "gemini" or "compatible"))
+        if (provider is not ("mock" or "openai" or "gemini" or "anthropic" or "groq" or "openrouter" or "compatible"))
             throw new ArgumentException("Unsupported provider.");
         if (model.Length is < 1 or > 100 ||
             !System.Text.RegularExpressions.Regex.IsMatch(model, @"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$"))

@@ -15,7 +15,7 @@ let reviewing = false;
 const PILOT_REPO = 'ReviewPR-AI-Test';
 // PRIVATE AUTH TEST ONLY. Use a stable trusted HTTPS backend before public release.
 // Configure this one URL when your temporary Cloudflare Quick Tunnel changes.
-const BACKEND_ORIGIN = 'https://tutorial-movements-compensation-rather.trycloudflare.com';
+const BACKEND_ORIGIN = 'https://treasury-suzuki-supreme-packages.trycloudflare.com';
 const APPROVED_REVIEW_MODES = Object.freeze({
   mock: Object.freeze({
     provider: 'mock',
@@ -489,7 +489,10 @@ function setupPersonalByokSettingsUI() {
     ['mock', 'Mock (no API key)'],
     ['openai', 'OpenAI'],
     ['gemini', 'Google Gemini'],
-    ['compatible', 'OpenAI-compatible (review integration pending)']
+    ['compatible', 'OpenAI-compatible (not yet connected)'],
+    ['anthropic', 'Anthropic Claude'],
+    ['groq', 'Groq'],
+    ['openrouter', 'OpenRouter']
   ]) provider.add(new Option(name, value));
   field('AI provider', provider);
 
@@ -510,6 +513,15 @@ function setupPersonalByokSettingsUI() {
   field('API key (never displayed again)', secret);
 
   const refresh = button('Load My Settings');
+  const discover = button('Discover Models');
+  const testConnection = button('Test Connection');
+  const modelChoices = document.createElement('select');
+  modelChoices.setAttribute('aria-label', 'Discovered provider models');
+  modelChoices.disabled = true;
+  modelChoices.add(new Option('No models loaded', ''));
+  modelChoices.style.cssText = 'display:block;max-width:420px;width:100%;margin:8px 0;';
+  panel.appendChild(modelChoices);
+
   const save = button('Save Personal Settings');
   const remove = button('Delete My Settings');
   const status = document.createElement('p');
@@ -540,9 +552,13 @@ function setupPersonalByokSettingsUI() {
   }
 
   let writesAllowed = false;
+  let keyConfigured = false;
   function lockWrites() {
     save.disabled = !writesAllowed;
     remove.disabled = !writesAllowed;
+    // Demo mock model can always be discovered and tested locally.
+    discover.disabled = provider.value !== 'mock' && (!writesAllowed || !keyConfigured);
+    testConnection.disabled = provider.value !== 'mock' && (!writesAllowed || !keyConfigured);
   }
   lockWrites();
 
@@ -563,19 +579,64 @@ function setupPersonalByokSettingsUI() {
       if ([...provider.options].some(o => o.value === data.provider)) provider.value = data.provider;
       model.value = data.model;
       secret.value = '';
+      keyConfigured = data.credentialConfigured;
+      lockWrites();
       status.textContent = `Settings loaded. Credential configured: ${data.credentialConfigured}. ` +
         (writesAllowed ? 'Personal writes enabled for approved pilot.' : 'Save/Delete locked by backend security gate.');
     } catch (_err) {
       status.textContent = 'Settings request failed: check HTTPS, backend and CORS.';
       writesAllowed = false;
+      keyConfigured = false;
       lockWrites();
     } finally { refresh.disabled = false; }
   }
 
   provider.addEventListener('change', () => {
     if (provider.value === 'mock') model.value = 'mock-positive-test';
+    keyConfigured = false; // Key on disk belongs to previously saved provider.
+    modelChoices.replaceChildren(new Option('No models loaded', ''));
+    modelChoices.disabled = true;
+    lockWrites();
+  });
+  modelChoices.addEventListener('change', () => {
+    if (modelChoices.value) model.value = modelChoices.value;
   });
   refresh.addEventListener('click', load);
+
+  discover.addEventListener('click', async () => {
+    if (discover.disabled) return;
+    discover.disabled = true;
+    status.textContent = 'Discovering models from the backend...';
+    try {
+      const result = await callPersonal('GET', `/api/ai/models/${encodeURIComponent(provider.value)}`);
+      if (result.status !== 200 || !Array.isArray(result.data?.models)) {
+        status.textContent = `Model discovery unavailable (HTTP ${result.status}). Save a credential first if required.`;
+        return;
+      }
+      modelChoices.replaceChildren(new Option('Select discovered model', ''));
+      for (const name of result.data.models.slice(0, 200)) {
+        if (typeof name === 'string' && name.length <= 100) modelChoices.add(new Option(name, name));
+      }
+      modelChoices.disabled = modelChoices.options.length < 2;
+      status.textContent = `${result.data.models.length} model(s) discovered.` +
+        (result.data.truncated ? ' Showing first 200.' : '');
+    } catch (_err) { status.textContent = 'Could not discover models. Check HTTPS and backend.'; }
+    finally { lockWrites(); }
+  });
+
+  testConnection.addEventListener('click', async () => {
+    if (testConnection.disabled) return;
+    testConnection.disabled = true;
+    status.textContent = 'Testing provider model-catalog access...';
+    try {
+      const result = await callPersonal('POST', '/api/ai/test-connection');
+      status.textContent = result.status === 200 && result.data?.connected === true
+        ? `Connection PASS (${result.data.provider}). Selected model listed: ${result.data.modelListed === true}. ` +
+          'This verifies model-list access, not inference.'
+        : `Connection test not verified (HTTP ${result.status}).`;
+    } catch (_err) { status.textContent = 'Connection test failed. Check HTTPS and backend.'; }
+    finally { lockWrites(); }
+  });
 
   save.addEventListener('click', async () => {
     if (!writesAllowed) return;
@@ -589,9 +650,12 @@ function setupPersonalByokSettingsUI() {
         apiKey: secret.value
       });
       secret.value = '';
-      status.textContent = result.status === 200
-        ? `Saved ${result.data?.provider || ''} settings; key configured: ${result.data?.credentialConfigured === true}.`
-        : `Save rejected (HTTP ${result.status}).`;
+      if (result.status === 200) {
+        keyConfigured = result.data?.credentialConfigured === true;
+        status.textContent = `Saved ${result.data?.provider || ''} settings; key configured: ${keyConfigured}.`;
+      } else {
+        status.textContent = `Save rejected (HTTP ${result.status}).`;
+      }
     } catch (_err) {
       secret.value = '';
       status.textContent = 'Save request failed. No confirmation of persistence.';
@@ -606,13 +670,20 @@ function setupPersonalByokSettingsUI() {
       const result = await callPersonal('DELETE', '/api/ai/settings/me');
       secret.value = '';
       status.textContent = result.status === 204 ? 'Personal BYOK settings deleted.' : `Delete rejected (HTTP ${result.status}).`;
-      if (result.status === 204) await load();
+      if (result.status === 204) {
+        keyConfigured = false;
+        await load();
+      }
     } catch (_err) { status.textContent = 'Delete request failed.'; }
     finally { lockWrites(); }
   });
 
   const settingsTab = document.getElementById('output')?.closest('.tab-panel');
-  (settingsTab || document.body).appendChild(panel);
+  const legacyPreview = document.getElementById('output')?.closest('.panel');
+  const legacyHeading = legacyPreview?.querySelector('h2');
+  if (legacyHeading) legacyHeading.textContent = 'Legacy preview (read-only)';
+  if (settingsTab) settingsTab.insertBefore(panel, settingsTab.firstElementChild);
+  else document.body.appendChild(panel);
   load().catch(() => { status.textContent = 'Settings initialization failed.'; });
 }
 

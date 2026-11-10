@@ -1,7 +1,7 @@
 {
   "manifestVersion": 1,
   "id": "reviewpr-ai-byok-auth-test",
-  "version": "0.0.9",
+  "version": "0.0.12",
   "name": "ReviewPR AI BYOK Auth Test",
   "publisher": "reviewpr-ai",
   "description": "Private read-only pilot for Azure Repos pull request review via protected Azure Pipelines runs.",

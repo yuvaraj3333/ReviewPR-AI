@@ -125,7 +125,7 @@ builder.Services.AddCors(options =>
     options.AddPolicy("ReviewPRByokTestCors", policy =>
     {
         policy.WithOrigins("https://reviewpr-ai.gallerycdn.vsassets.io")
-              .WithMethods("GET", "PUT", "DELETE")
+              .WithMethods("GET", "PUT", "DELETE", "POST")
               .WithHeaders("Authorization", "X-ReviewPR-DevOps-Token", "Content-Type");
     });
 });
@@ -153,6 +153,18 @@ builder.Services.AddDataProtection()
     .ProtectKeysWithDpapi();
 builder.Services.AddSingleton<PersonalByokSettingsStore>();
 builder.Services.AddScoped<ByokPilotIdentityResolver>();
+// Explicitly allowlisted provider catalog lookup; no user-controlled provider URL.
+builder.Services.AddHttpClient("ByokProviderModels", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(20);
+})
+.ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+{
+    AllowAutoRedirect = false,
+    UseCookies = false
+});
+builder.Services.AddScoped<ByokProviderModelsService>();
+
 var app = builder.Build();
 
 // --------------------------------------------------
@@ -706,6 +718,97 @@ app.MapGet("/api/ai/settings/capabilities", (
         automaticReviewPublishingEnabled = false
     }))
     .RequireAuthorization();
+
+
+// REVIEWPR_3FD_PROVIDER_CATALOG: Backend-only model discovery and connection test.
+// These APIs use the signed extension app token AND Azure DevOps delegated identity.
+// No API-key fields or upstream response bodies are returned to the browser.
+app.MapGet("/api/ai/providers", async (
+    HttpContext ctx, ByokPilotIdentityResolver identity, CancellationToken ct) =>
+{
+    string? userId = await identity.ResolveUserIdAsync(ctx, ct);
+    if (userId is null) return Results.StatusCode(403);
+    return Results.Ok(ByokProviderModelsService.PublicProviders);
+}).RequireAuthorization();
+
+app.MapGet("/api/ai/models/{provider}", async (
+    string provider, HttpContext ctx, IConfiguration config,
+    ByokPilotIdentityResolver identity, PersonalByokSettingsStore store,
+    ByokProviderModelsService models, CancellationToken ct) =>
+{
+    string? userId = await identity.ResolveUserIdAsync(ctx, ct);
+    if (userId is null) return Results.StatusCode(403);
+    provider = provider.Trim().ToLowerInvariant();
+    if (provider == "mock")
+        return Results.Ok(new { provider, models = new[] { "mock-positive-test" },
+            count = 1, truncated = false, requiresCredential = false });
+    if (!ByokProviderModelsService.IsSupported(provider))
+        return Results.BadRequest(new { error = "Provider model discovery is not supported." });
+    // Never decrypt or send stored keys while the pilot's security gate is disabled.
+    if (!config.GetValue<bool>("BYOK:EnablePersonalSettingsWrites"))
+        return Results.StatusCode(403);
+    try
+    {
+        PersonalByokCredential? saved = await store.GetCredentialAsync(
+            ByokPilotIdentityResolver.Organization, userId, ct);
+        if (saved is null || saved.Provider != provider)
+            return Results.Conflict(new { error = "Save this provider and its key first." });
+        var result = await models.ListAsync(provider, saved.ApiKey, ct);
+        if (!result.Success)
+            return Results.Json(new { error = "Provider connection could not be verified.",
+                provider, upstreamHttpStatus = result.UpstreamStatus }, statusCode: 502);
+        return Results.Ok(new { provider, models = result.Models,
+            count = result.Models.Length, truncated = result.Truncated,
+            requiresCredential = true });
+    }
+    catch (Exception ex) when (ex is HttpRequestException or
+        TaskCanceledException or System.Text.Json.JsonException or
+        InvalidDataException or System.Security.Cryptography.CryptographicException)
+    {
+        return Results.Problem(title: "Provider model lookup failed", statusCode: 502);
+    }
+}).RequireAuthorization();
+
+app.MapPost("/api/ai/test-connection", async (
+    HttpContext ctx, IConfiguration config, ByokPilotIdentityResolver identity,
+    PersonalByokSettingsStore store, ByokProviderModelsService models,
+    CancellationToken ct) =>
+{
+    string? userId = await identity.ResolveUserIdAsync(ctx, ct);
+    if (userId is null) return Results.StatusCode(403);
+    PersonalByokSettingsResponse settings = await store.GetAsync(
+        ByokPilotIdentityResolver.Organization, userId, ct);
+    if (settings.Provider == "mock")
+        return Results.Ok(new { connected = true, provider = "mock",
+            model = settings.Model, modelListed = true, mock = true,
+            note = "Local mock test; no external AI provider contacted." });
+    if (!ByokProviderModelsService.IsSupported(settings.Provider))
+        return Results.BadRequest(new { error = "This provider has no configured model-catalog connector." });
+    if (!config.GetValue<bool>("BYOK:EnablePersonalSettingsWrites"))
+        return Results.StatusCode(403);
+    try
+    {
+        PersonalByokCredential? saved = await store.GetCredentialAsync(
+            ByokPilotIdentityResolver.Organization, userId, ct);
+        if (saved is null || saved.Provider != settings.Provider)
+            return Results.Conflict(new { error = "No saved credential for selected provider." });
+        var result = await models.ListAsync(saved.Provider, saved.ApiKey, ct);
+        if (!result.Success)
+            return Results.Json(new { connected = false, provider = saved.Provider,
+                upstreamHttpStatus = result.UpstreamStatus,
+                note = "Model listing failed. No inference request was sent." }, statusCode: 502);
+        bool modelListed = result.Models.Contains(saved.Model, StringComparer.OrdinalIgnoreCase);
+        return Results.Ok(new { connected = true, provider = saved.Provider,
+            model = saved.Model, modelListed, checkedWith = "provider-models-api",
+            note = "Credential accepted by model-list API; inference capability not verified." });
+    }
+    catch (Exception ex) when (ex is HttpRequestException or
+        TaskCanceledException or System.Text.Json.JsonException or
+        InvalidDataException or System.Security.Cryptography.CryptographicException)
+    {
+        return Results.Problem(title: "Provider connection test failed", statusCode: 502);
+    }
+}).RequireAuthorization();
 
 app.Run();
 
