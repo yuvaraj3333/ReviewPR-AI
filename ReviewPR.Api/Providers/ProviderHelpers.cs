@@ -26,11 +26,27 @@ internal static class ProviderHelpers
         return result;
     }
 
+    private static string SanitizeProviderMessage(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return "No additional details.";
+
+        var sanitized = value.Replace('\r', ' ').Replace('\n', ' ').Trim();
+        while (sanitized.Contains("  ", StringComparison.Ordinal))
+            sanitized = sanitized.Replace("  ", " ", StringComparison.Ordinal);
+
+        if (sanitized.Contains("AIza", StringComparison.OrdinalIgnoreCase))
+            return "Provider error details were withheld because they may contain a credential.";
+
+        return sanitized.Length > 240 ? sanitized[..240] : sanitized;
+    }
+
     internal static async Task ThrowOnFailure(HttpResponseMessage response, CancellationToken ct)
     {
         if (response.IsSuccessStatusCode) return;
         // Do not include raw provider response: it might contain sensitive information.
         string category = "unknown";
+        string safeMessage = "No additional details.";
         try
         {
             var body = await response.Content.ReadAsStringAsync(ct);
@@ -41,15 +57,18 @@ internal static class ProviderHelpers
                     category = code.GetString() ?? category;
                 else if (error.TryGetProperty("status", out var status) && status.ValueKind == JsonValueKind.String)
                     category = status.GetString() ?? category;
+                    if (error.TryGetProperty("message", out var message) && message.ValueKind == JsonValueKind.String)
+                        safeMessage = SanitizeProviderMessage(message.GetString());
             }
         }
         catch (JsonException) { }
-        throw new ProviderHttpException((int)response.StatusCode, category);
+        throw new ProviderHttpException((int)response.StatusCode, category, safeMessage);
     }
 }
 
-public sealed class ProviderHttpException(int status, string category) : Exception("Provider rejected the review request")
+public sealed class ProviderHttpException(int status, string category, string safeMessage) : Exception("Provider rejected the review request")
 {
     public int UpstreamStatus { get; } = status;
     public string Category { get; } = category;
+    public string SafeMessage { get; } = safeMessage;
 }

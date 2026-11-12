@@ -87,8 +87,29 @@ internal static class Program
         }
         catch (ProviderHttpException ex)
         {
-            // Do not expose upstream raw responses; they can contain sensitive material.
-            Reply(new { success = false, error = $"AI provider returned HTTP {ex.UpstreamStatus}." });
+            // Expose only a safe structured error category, never the raw provider response.
+            var category = string.IsNullOrWhiteSpace(ex.Category)
+                ? "unknown"
+                : ex.Category;
+
+            if (category.Length > 80)
+                category = "unknown";
+
+            foreach (var ch in category)
+            {
+                if (!char.IsLetterOrDigit(ch) &&
+                    ch != '_' && ch != '-' && ch != '.')
+                {
+                    category = "unknown";
+                    break;
+                }
+            }
+
+            Reply(new
+            {
+                success = false,
+                error = $"AI provider returned HTTP {ex.UpstreamStatus} ({category}): {ex.SafeMessage}"
+            });
             return 1;
         }
         catch (OperationCanceledException)
