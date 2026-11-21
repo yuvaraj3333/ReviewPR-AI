@@ -17,3 +17,20 @@ secrets.json
 **/appsettings.Development.json
 **/.env
 **/.env.*
+
+# ReviewPR AI local backups and generated TypeScript test output
+/backup-*/
+/ide/reviewpr-ai/out/
+
+# Generated ReviewPR AI bridge binaries
+/ide/reviewpr-ai/bridge/
+
+# Local application configuration
+**/appsettings.json
+**/appsettings.*.json
+!**/appsettings.example.json
+# Published deployment output
+
+# Development backups and build logs
+**/*.before-*
+**/*.log

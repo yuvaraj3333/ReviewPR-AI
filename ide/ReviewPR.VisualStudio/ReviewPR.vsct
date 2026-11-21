@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CommandTable xmlns="http://schemas.microsoft.com/VisualStudio/2005-10-18/CommandTable">
+  <Extern href="stdidcmd.h"/>
+  <Extern href="vsshlids.h"/>
+
+  <Commands package="guidReviewPRPackage">
+    <Groups>
+      <Group guid="guidReviewPRCmdSet" id="ReviewPRMenuGroup" priority="0x0600">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_TOOLS"/>
+      </Group>
+    </Groups>
+
+    <Buttons>
+      <Button guid="guidReviewPRCmdSet" id="ReviewPRReviewCommand" priority="0x0100" type="Button">
+        <Parent guid="guidReviewPRCmdSet" id="ReviewPRMenuGroup"/>
+        <Strings>
+          <ButtonText>ReviewPR AI: Review Changes</ButtonText>
+        </Strings>
+      </Button>
+      <Button guid="guidReviewPRCmdSet" id="ReviewPRConfigureCommand" priority="0x0101" type="Button">
+        <Parent guid="guidReviewPRCmdSet" id="ReviewPRMenuGroup"/>
+        <Strings><ButtonText>ReviewPR AI: Configure Provider</ButtonText></Strings>
+      </Button>
+    </Buttons>
+  </Commands>
+
+  <Symbols>
+    <GuidSymbol name="guidReviewPRPackage" value="{B6D7E7A1-4B52-4F31-9B3C-6E1B2A9F7D10}"/>
+    <GuidSymbol name="guidReviewPRCmdSet" value="{C3A8F4D2-9E61-4B75-A210-5D8F7C6E4B30}">
+      <IDSymbol name="ReviewPRMenuGroup" value="0x1020"/>
+      <IDSymbol name="ReviewPRReviewCommand" value="0x0100"/>
+      <IDSymbol name="ReviewPRConfigureCommand" value="0x0101"/>
+    </GuidSymbol>
+  </Symbols>
+</CommandTable>

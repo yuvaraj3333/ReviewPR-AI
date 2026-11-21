@@ -13,5 +13,8 @@
     <Compile Include="../ReviewPR.Api/Providers/ProviderHelpers.cs" Link="Providers/ProviderHelpers.cs" />
     <Compile Include="../ReviewPR.Api/Providers/OpenAIProvider.cs" Link="Providers/OpenAIProvider.cs" />
     <Compile Include="../ReviewPR.Api/Providers/GeminiProvider.cs" Link="Providers/GeminiProvider.cs" />
+    <Compile Include="../ReviewPR.Api/Providers/OpenAICompatibleProvider.cs" Link="Providers/OpenAICompatibleProvider.cs" />
+    <Compile Include="../ReviewPR.Api/Providers/AnthropicProvider.cs" Link="Providers/AnthropicProvider.cs" />
+    <Compile Include="../ReviewPR.Api/Services/ByokProviderModelsService.cs" Link="Services/ByokProviderModelsService.cs" />
   </ItemGroup>
 </Project>

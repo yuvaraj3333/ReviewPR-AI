@@ -2,7 +2,7 @@
   "name": "reviewpr-ai",
   "displayName": "ReviewPR AI",
   "description": "AI-powered Git code review for developers",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "engines": {
     "vscode": "^1.145.0"
   },
@@ -25,18 +25,7 @@
         "command": "reviewpr-ai.configureProvider",
         "title": "ReviewPR AI: Configure Provider & Model"
       }
-    ],
-    "configuration": {
-      "title": "ReviewPR AI",
-      "properties": {
-        "reviewpr-ai.bridgeDllPath": {
-          "type": "string",
-          "default": "",
-          "description": "Absolute path to the locally built ReviewPR.IdeBridge.dll (Release/net10.0). Required for OpenAI and Gemini; Mock needs no bridge.",
-          "scope": "application"
-        }
-      }
-    }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run package",
@@ -44,7 +33,8 @@
     "watch": "npm-run-all -p watch:*",
     "watch:esbuild": "node esbuild.js --watch",
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
-    "package": "npm run check-types && npm run lint && node esbuild.js --production",
+    "package": "npm run check-types && npm run lint && npm run package:bridge && node esbuild.js --production",
+    "package:bridge": "dotnet publish ..\\..\\ReviewPR.IdeBridge\\ReviewPR.IdeBridge.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o bin\\win-x64",
     "compile-tests": "tsc -p . --outDir out",
     "watch-tests": "tsc -p . -w --outDir out",
     "pretest": "npm run compile-tests && npm run compile && npm run lint",
@@ -68,5 +58,5 @@
     "diff": "^8.0.4",
     "serialize-javascript": "^7.0.6"
   },
-  "publisher": "reviewpr-local"
+  "publisher": "reviewpr-ai"
 }

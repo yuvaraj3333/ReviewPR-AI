@@ -1,46 +1,34 @@
-# ReviewPR AI
+# ReviewPR AI for Visual Studio Code
 
-ReviewPR AI is a developer tool being built to review
-Git code changes using AI.
+AI-powered Git code review directly inside Visual Studio Code.
 
-## Current Development Status
-
-This is an early development version of the VS Code extension.
-
-The current version contains a Hello World command
-used to validate extension installation and activation.
-
-## Planned Features
-
-- Manual Review with AI command
-- Git diff analysis
-- OpenAI and Gemini integration
-- Configurable AI provider and model
+## Features
+- Review local Git changes using AI
+- Gemini, Groq, OpenRouter, OpenAI and Anthropic providers
+- Bring Your Own API Key (BYOK)
+- Manual provider and model selection
 - Secure API key storage
-- Code review findings with severity and line numbers
-- Suggested code fixes
+- Validated findings with file paths and line numbers
+- Severity, descriptions and suggested fixes
 
-## Development
+## Requirements
+- Visual Studio Code version supported by this extension
+- Windows x64 for the bundled .NET bridge
+- Git installed and available in PATH
 
-Requirements:
-- Visual Studio Code 1.145.0 or newer
-- Node.js and npm
-
-Build:
-
-npm install
-npm run compile
-
-## Testing
-
-Install the generated VSIX into Visual Studio Code.
-
-Open the Command Palette and run Hello World.
+## Getting Started
+1. Install ReviewPR AI.
+2. Open a Git repository.
+3. Run ReviewPR AI: Configure Provider & Model.
+4. Select your provider and model.
+5. Configure your API key.
+6. Run ReviewPR AI: Review with AI.
 
 ## Security
+API keys must not be committed to source control or exposed in logs.
 
-Do not store API keys or secrets in source code.
+## Scope
+Reviews local Git changes. This is not a hosted pull-request approval service.
 
-## Project Status
-
-Development preview. Not yet ready for production use.
+## License
+MIT License. See the repository LICENSE file.
