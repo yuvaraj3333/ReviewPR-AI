@@ -58,5 +58,10 @@
     "diff": "^8.0.4",
     "serialize-javascript": "^7.0.6"
   },
-  "publisher": "reviewpr-ai"
+  "publisher": "reviewpr-ai",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yuvaraj3333/ReviewPR-AI.git"
+  },
+  "license": "MIT"
 }
